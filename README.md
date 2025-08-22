@@ -30,3 +30,5 @@ step 1 : set the current path to .....local-voice-tts/app
 step 2 : npm install
 step 3 : npm start
 step 4 : copy the url of localhost:3000 and paste in browser
+
+nvidia-smi

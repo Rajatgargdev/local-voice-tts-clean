@@ -2,6 +2,7 @@ from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from TTS.api import TTS
+import torch
 from pydub import AudioSegment
 import os
 import uuid
@@ -10,11 +11,20 @@ import uuid
 # Load TTS model once
 # ----------------------------
 MODEL_NAME = "tts_models/multilingual/multi-dataset/xtts_v2"
-tts = TTS(MODEL_NAME)
+tts = TTS(MODEL_NAME, progress_bar=True, gpu=True)  # gpu=True enables GPU
 
+# Optional: preload speaker voice if needed
+SPEAKER_WAV = "sample.wav"
+
+# Free GPU memory
+torch.cuda.empty_cache()
+
+# ----------------------------
+# FastAPI app setup
+# ----------------------------
 app = FastAPI()
 
-# ✅ Enable CORS so React (localhost:3000) can access FastAPI
+# Enable CORS so React (localhost:3000) can access FastAPI
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000"],  # frontend URL
@@ -30,11 +40,12 @@ job_progress = {}   # {job_id: {"processed": int, "total": int}}
 job_status   = {}   # {job_id: "queued"|"running"|"done"|"error"}
 job_result   = {}   # {job_id: "path/to/final.wav"}
 
-
+# ----------------------------
+# Root endpoint
+# ----------------------------
 @app.get("/")
 def root():
     return {"message": "TTS API is running!"}
-
 
 # ----------------------------
 # Background TTS worker
@@ -48,7 +59,7 @@ def process_tts_job(job_id: str, text: str, language: str):
         job_status[job_id] = "running"
 
         temp_files = []
-        speaker_wav = "sample.wav"  # reference speaker voice
+        speaker_wav = SPEAKER_WAV  # reference speaker voice
 
         for idx, chunk in enumerate(chunks):
             temp_path = f"chunk_{job_id}_{idx}.wav"
@@ -60,7 +71,7 @@ def process_tts_job(job_id: str, text: str, language: str):
             )
             temp_files.append(temp_path)
 
-            # ✅ Update progress
+            # Update progress
             job_progress[job_id]["processed"] = idx + 1
 
         # Merge audio
@@ -76,13 +87,13 @@ def process_tts_job(job_id: str, text: str, language: str):
             if os.path.exists(f):
                 os.remove(f)
 
+        # Save final result
         job_result[job_id] = output_path
         job_status[job_id] = "done"
 
     except Exception as e:
         job_status[job_id] = "error"
         print(f"Job {job_id} failed: {e}")
-
 
 # ----------------------------
 # Start TTS job
@@ -111,7 +122,6 @@ async def start_job(
 
     return {"job_id": job_id}
 
-
 # ----------------------------
 # Check job progress
 # ----------------------------
@@ -127,7 +137,6 @@ def get_progress(job_id: str):
         "total": progress["total"],
         "percent": 0 if progress["total"] == 0 else int((progress["processed"] / progress["total"]) * 100)
     }
-
 
 # ----------------------------
 # Get final result
